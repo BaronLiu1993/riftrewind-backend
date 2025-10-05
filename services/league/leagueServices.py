@@ -78,8 +78,6 @@ def retrieveMatchData(matchId: str):
     except Exception as e:
         print(e)
 
-
-
 def retrieveMatchDataTimeline(matchId: str):
     try:
         response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}/timeline?api_key={RIOT_API_KEY}")
@@ -111,6 +109,9 @@ def uploadMatchDataToS3(riotId: str, tag: str):
     for i in range(len(matchIdData)):
         matchData = retrieveMatchData(matchIdData[i])
         insertDataMatch(matchData, matchIdData[i], puuid)
+
+def uploadProfileDataToS3():
+    pass
 
 retrieveMatchDataFramesTimeline("NA1_5368916340", "JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
 #print(retrieveAccountData("jerrrrbear", "NA1"))
