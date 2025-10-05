@@ -16,7 +16,6 @@ load_dotenv()
 RIOT_API_KEY = os.environ.get("RIOT_API_KEY")
 s3 = boto3.client('s3')
 
-
 def uploadToS3Match(jsonData, bucket, objectName):
     try:
         json_string = json.dumps(jsonData)
@@ -43,13 +42,11 @@ def retrieveAccountData(riotId: str, tag: str):
     except Exception as e:
         print(e)
 
-        
-    
-
 def retrieveRankedData(PUUID: str):
     try:
         response = requests.get(f"https://na1.api.riotgames.com/lol/league/v4/entries/by-puuid/{PUUID}?api_key={RIOT_API_KEY}")
         data = response.json()
+        uploadToS3Match(data, "riftrewind", f"player/{PUUID}/{PUUID}.json")    
         return data
     except Exception as e:
         print(e)
@@ -70,55 +67,39 @@ def retrieveMatchIds(PUUID: str):
     except Exception as e:
         print(e)
 
-def retrieveMatchData(matchId: str):
+def retrieveMatchData(matchId: str, puuid):
     try:
         response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}?api_key={RIOT_API_KEY}")
         data = response.json()
-        return data
+        uploadToS3Match(data["info"], "riftrewind", f"match/{puuid}/{matchId}.json")
     except Exception as e:
         print(e)
-
-def retrieveMatchDataTimeline(matchId: str):
-    try:
-        response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}/timeline?api_key={RIOT_API_KEY}")
-        data = response.json()
-        return data
-    except Exception as e:
-        print(e)
-
 
 def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
     try:
         url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}/timeline?api_key={RIOT_API_KEY}"        
         response = requests.get(url)
-        
         response.raise_for_status() 
-        
         data = response.json() 
         uploadToS3Match(data["info"], "riftrewind", f"timestamp/{puuid}/{matchId}.json")    
 
-    except requests.exceptions.RequestException as e:
-        print(f"❌ An error occurred during the API request: {e}")
     except Exception as e:
-        print(f"❌ An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred: {e}")
 
-def uploadMatchDataToS3(riotId: str, tag: str):
+#Function inserts all necessary Data
+def uploadAllDataToS3(riotId: str, tag: str):
     puuid = retrieveAccountData(riotId, tag)
     matchIdData = retrieveMatchIds(puuid)
+    try:
+        retrieveRankedData(puuid)
+        for i in range(len(matchIdData)):
+            retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
+            retrieveMatchData(matchIdData[i], puuid)
+        print("Successfully Inserted Data")
+    except Exception as e:
+        raise Exception(e)
 
-    for i in range(len(matchIdData)):
-        matchData = retrieveMatchData(matchIdData[i])
-        insertDataMatch(matchData, matchIdData[i], puuid)
-
-def uploadProfileDataToS3():
-    pass
-
-retrieveMatchDataFramesTimeline("NA1_5368916340", "JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
-#print(retrieveAccountData("jerrrrbear", "NA1"))
-#print(retrieveRankedData("JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g"))
-#retrieveMatchIds("JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
-#print(retrieveMatchData("NA1_5368916340"))
-#print(retrieveMatchDataFramesTimeline("NA1_5368916340"))
+uploadAllDataToS3("jerrrrbear", "NA1")
 
 
 
@@ -356,13 +337,13 @@ def visualize_champion_stat_over_time(timeline_data, stat_to_plot='healthMax'):
     plt.tight_layout()
     plt.show()
 
-visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='healthMax')
+#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='healthMax')
 
 # Example 2: Graph the attack damage of all champions over time
-visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='attackDamage')
+#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='attackDamage')
 
 # Example 3: Graph the ability power of all champions over time
-visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='abilityPower')
+#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='abilityPower')
 
 # Example 4: Graph the movement speed of all champions over time
-visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='movementSpeed')
+#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='movementSpeed')
