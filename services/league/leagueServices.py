@@ -38,6 +38,7 @@ def retrieveAccountData(riotId: str, tag: str):
         url = f"https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{riotId}/{tag}?api_key={RIOT_API_KEY}"
         response = requests.get(url)
         data = response.json()
+        print(data["puuid"])
         return data['puuid']
     except Exception as e:
         print(e)
@@ -67,11 +68,17 @@ def retrieveMatchIds(PUUID: str):
     except Exception as e:
         print(e)
 
+# Time Stamp DO the Same here and upload the data in the same format
 def retrieveMatchData(matchId: str, puuid):
     try:
         response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}?api_key={RIOT_API_KEY}")
         data = response.json()
-        uploadToS3Match(data["info"], "riftrewind", f"match/{puuid}/{matchId}.json")
+        print(len(data["info"]["participants"]))
+        for i in range(len(data["info"]["participants"])):
+            uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"match/participants/{puuid}/{matchId}.json")
+        for i in range(len(data["info"]["teams"])):
+            uploadToS3Match(data["info"]["teams"][i], "riftrewind", f"match/teams/{puuid}/{matchId}.json")
+
     except Exception as e:
         print(e)
 
@@ -81,7 +88,14 @@ def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
         response = requests.get(url)
         response.raise_for_status() 
         data = response.json() 
-        uploadToS3Match(data["info"], "riftrewind", f"timestamp/{puuid}/{matchId}.json")    
+        out_dir = os.path.join("timestamp", puuid)
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, f"{matchId}.json")
+        print(len(data["info"]["frames"]))
+        #["frames"][0]
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(data["info"]["frames"][len(data["info"]["frames"])], f, ensure_ascii=False, indent=2)
+        #uploadToS3Match(data["info"], "riftrewind", f"timestamp/{puuid}/{matchId}.json")    
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
@@ -94,11 +108,12 @@ def uploadAllDataToS3(riotId: str, tag: str):
         retrieveRankedData(puuid)
         for i in range(len(matchIdData)):
             retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
-            retrieveMatchData(matchIdData[i], puuid)
+            #retrieveMatchData(matchIdData[i], puuid)
         print("Successfully Inserted Data")
     except Exception as e:
         raise Exception(e)
 
+retrieveAccountData("jerrrrbear", "NA1")
 uploadAllDataToS3("jerrrrbear", "NA1")
 
 
