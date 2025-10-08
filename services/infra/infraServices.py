@@ -1,26 +1,26 @@
-import json
-import io
 import boto3
+import uuid
 
 s3 = boto3.client('s3')
+bedrock = boto3.client('bedrock-agent-runtime', region_name="us-west-2")
 
-
-def uploadToS3Match(jsonData, bucket, objectName):
+def callAgent(prompt):
+    session_id = str(uuid.uuid4())
     try:
-        json_string = json.dumps(jsonData)
-        file_like_object = io.StringIO(json_string)        
-        response = s3.put_object(Body=file_like_object.getvalue(), Bucket=bucket, Key=objectName)        
-        print(response)
+        resp = bedrock.invoke_agent(
+            agentId="7QIO2RK8QC",
+            agentAliasId="UEHVTCLAZV",
+            sessionId=session_id,
+            inputText=prompt,
+            streamingConfigurations={"streamFinalResponse": False},
+        )
+
+        chunks = []
+        for event in resp["completion"]:
+            if "chunk" in event:
+                chunks.append(event["chunk"]["bytes"].decode("utf-8", errors="ignore"))
+        return "".join(chunks)
     except Exception as e:
-        print(e)
+        raise Exception(e)
 
-
-def insertAllData(jsonData):
-    try:
-        uploadToS3Match(jsonData, "riftrewind", f"/match/{jsonData['matchId']}.json")
-        print("completed")
-    except Exception as e:
-        print(e)
-
-
-#uploadToS3Match(json_data, "riftrewind", "/match/test.json")
+print(callAgent("Tell me in one short sentence what is the best way to get better at league of legends?"))
