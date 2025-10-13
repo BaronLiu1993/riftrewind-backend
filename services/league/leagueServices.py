@@ -4,12 +4,6 @@ import os
 import io
 import boto3
 import json
-import matplotlib.pyplot as plt
-import pandas as pd
-import seaborn as sns
-from PIL import Image
-from io import BytesIO
-
 
 load_dotenv()
 
@@ -74,19 +68,15 @@ def retrieveMatchData(matchId: str, puuid):
     try:
         response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}?api_key={RIOT_API_KEY}")
         data = response.json()
-        print(len(data["info"]["participants"]))
-
-        #Clean the data now
         for i in range(len(data["info"]["participants"])):
             if data["info"]["participants"][i]["puuid"] == str(puuid):
-                uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"match/train/{puuid}/{matchId}.json")
-
-        print("Saved:", f"{matchId}.json")
+                uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"playerinput/{puuid}/{matchId}.json")
         #for i in range(len(data["info"]["teams"])):
         #    uploadToS3Match(data["info"]["teams"][i], "riftrewind", f"match/teams/{puuid}/{matchId}.json")
 
     except Exception as e:
         print(e)
+
 #extract the correct PUUID too out from the output of the match data for each and aggregate as well
 def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
     try:
@@ -107,65 +97,17 @@ def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
         print(f"An unexpected error occurred: {e}")
 
 #Function inserts all necessary Data
-def uploadAllDataToS3(riot_id: str, tag: str):
-    """Ingest one player: resolve PUUID -> ranked data -> recent matches (skip on errors).
-       Returns a dict summary with counts."""
-    summary = {
-        "riot_id": riot_id,
-        "tag": tag,
-        "puuid": None,
-        "ranked_ok": False,
-        "matches_total": 0,
-        "matches_ok": 0,
-        "matches_failed": 0,
-        "errors": []
-    }
-
-    try:
-        puuid = retrieveAccountData(riot_id, tag)  
-        if not puuid:
-            raise ValueError("Empty PUUID from retrieveAccountData.")
-        summary["puuid"] = puuid
-    except Exception as e:
-        summary["errors"].append(f"account_error:{e}")
-        print(f"[SKIP] account error for {riot_id}#{tag}: {e}")
-        return summary  
-
-    try:
-        match_ids = retrieveMatchIds(puuid)  
-        if not isinstance(match_ids, list):
-            raise TypeError(f"retrieveMatchIds returned {type(match_ids)}")
-
-        summary["matches_total"] = len(match_ids)
-    except Exception as e:
-        summary["errors"].append(f"match_ids_error:{e}")
-        print(f"[SKIP] match-id error for {riot_id}#{tag}: {e}")
-        match_ids = []  
-
+def uploadAllDataToS3(riotId: str, tag: str):
+    puuid = retrieveAccountData(riotId, tag)
+    matchIdData = retrieveMatchIds(puuid)
     try:
         retrieveRankedData(puuid)
-        summary["ranked_ok"] = True
+        for i in range(len(matchIdData)):
+            #retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
+            retrieveMatchData(matchIdData[i], puuid)
     except Exception as e:
-        summary["errors"].append(f"ranked_error:{e}")
-        print(f"[WARN] ranked error for {riot_id}#{tag}: {e}")
-
-    for mid in match_ids:
-        try:
-            # retrieveMatchDataFramesTimeline(mid, puuid)  # if you need timeline
-            retrieveMatchData(mid, puuid)
-            summary["matches_ok"] += 1
-        except Exception as e:
-            summary["matches_failed"] += 1
-            summary["errors"].append(f"match:{mid}:{e}")
-            print(f"[SKIP] match {mid} for {riot_id}#{tag}: {e}")
-            continue
-
-    print(f"Done {riot_id}#{tag} | "
-          f"ranked_ok={summary['ranked_ok']} | "
-          f"matches_ok={summary['matches_ok']}/{summary['matches_total']} | "
-          f"errors={len(summary['errors'])}")
-    return summary
-
+        raise Exception(e)
+       
     
 def uploadAllDataToS3Puuid(puuid):
     matchIdData = retrieveMatchIds(puuid)
@@ -174,7 +116,6 @@ def uploadAllDataToS3Puuid(puuid):
         for i in range(len(matchIdData)):
             #retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
             retrieveMatchData(matchIdData[i], puuid)
-        print("Successfully Inserted Data")
     except Exception as e:
         raise Exception(e)
 

@@ -1,11 +1,17 @@
 from fastapi import FastAPI
+from services.league.leagueServices import uploadAllDataToS3
+from pydantic import BaseModel
 
 app = FastAPI()
 
-@app.get()
-async def insertIntoS3():
-    pass
+class SummonerRequest(BaseModel):
+    riotId: str
+    tag : str
 
 @app.post()
-async def dataIngest():
-    return
+async def ingestData(req: SummonerRequest):
+    uploadAllDataToS3(req.riotId, req.tag)
+
+@app.post()
+async def queryChallengeStats():
+    pass
