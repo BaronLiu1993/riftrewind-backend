@@ -130,10 +130,6 @@ def uploadAllDataToS3Puuid(puuid):
     except Exception as e:
         raise Exception(e)
 
-#print(retrieveAccountData("jerrrrbear", "NA1"))
-#retrieveRankedData("JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
-uploadAllDataToS3("jerrrrbear", "NA1")
-
 def uploadTrainingData():
     rankings = [
   { "name": "DIAMOND", "divisions": ["I"] },

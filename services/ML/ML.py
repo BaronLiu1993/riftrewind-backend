@@ -45,5 +45,3 @@ def callAgent(prompt):
         raise Exception(e)
 
 
-print(callAgent("Tell me in one short sentence what is the best way to get better at league of legends?"))
-#print(trainkMeansCluster())
