@@ -47,6 +47,7 @@ def retrieveRankedData(PUUID: str):
     try:
         response = requests.get(f"https://na1.api.riotgames.com/lol/league/v4/entries/by-puuid/{PUUID}?api_key={RIOT_API_KEY}")
         data = response.json()
+        print(data)
         uploadToS3Match(data, "riftrewind", f"player/{PUUID}/{PUUID}.json")    
         return data
     except Exception as e:
@@ -74,14 +75,19 @@ def retrieveMatchData(matchId: str, puuid):
         response = requests.get(f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}?api_key={RIOT_API_KEY}")
         data = response.json()
         print(len(data["info"]["participants"]))
+
+        #Clean the data now
         for i in range(len(data["info"]["participants"])):
-            uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"match/participants/{puuid}/{matchId}.json")
-        for i in range(len(data["info"]["teams"])):
-            uploadToS3Match(data["info"]["teams"][i], "riftrewind", f"match/teams/{puuid}/{matchId}.json")
+            if data["info"]["participants"][i]["puuid"] == str(puuid):
+                uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"match/train/{puuid}/{matchId}.json")
+
+        print("Saved:", f"{matchId}.json")
+        #for i in range(len(data["info"]["teams"])):
+        #    uploadToS3Match(data["info"]["teams"][i], "riftrewind", f"match/teams/{puuid}/{matchId}.json")
 
     except Exception as e:
         print(e)
-
+#extract the correct PUUID too out from the output of the match data for each and aggregate as well
 def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
     try:
         url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}/timeline?api_key={RIOT_API_KEY}"        
@@ -101,264 +107,91 @@ def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
         print(f"An unexpected error occurred: {e}")
 
 #Function inserts all necessary Data
-def uploadAllDataToS3(riotId: str, tag: str):
-    puuid = retrieveAccountData(riotId, tag)
+def uploadAllDataToS3(riot_id: str, tag: str):
+    """Ingest one player: resolve PUUID -> ranked data -> recent matches (skip on errors).
+       Returns a dict summary with counts."""
+    summary = {
+        "riot_id": riot_id,
+        "tag": tag,
+        "puuid": None,
+        "ranked_ok": False,
+        "matches_total": 0,
+        "matches_ok": 0,
+        "matches_failed": 0,
+        "errors": []
+    }
+
+    try:
+        puuid = retrieveAccountData(riot_id, tag)  
+        if not puuid:
+            raise ValueError("Empty PUUID from retrieveAccountData.")
+        summary["puuid"] = puuid
+    except Exception as e:
+        summary["errors"].append(f"account_error:{e}")
+        print(f"[SKIP] account error for {riot_id}#{tag}: {e}")
+        return summary  
+
+    try:
+        match_ids = retrieveMatchIds(puuid)  
+        if not isinstance(match_ids, list):
+            raise TypeError(f"retrieveMatchIds returned {type(match_ids)}")
+
+        summary["matches_total"] = len(match_ids)
+    except Exception as e:
+        summary["errors"].append(f"match_ids_error:{e}")
+        print(f"[SKIP] match-id error for {riot_id}#{tag}: {e}")
+        match_ids = []  
+
+    try:
+        retrieveRankedData(puuid)
+        summary["ranked_ok"] = True
+    except Exception as e:
+        summary["errors"].append(f"ranked_error:{e}")
+        print(f"[WARN] ranked error for {riot_id}#{tag}: {e}")
+
+    for mid in match_ids:
+        try:
+            # retrieveMatchDataFramesTimeline(mid, puuid)  # if you need timeline
+            retrieveMatchData(mid, puuid)
+            summary["matches_ok"] += 1
+        except Exception as e:
+            summary["matches_failed"] += 1
+            summary["errors"].append(f"match:{mid}:{e}")
+            print(f"[SKIP] match {mid} for {riot_id}#{tag}: {e}")
+            continue
+
+    print(f"Done {riot_id}#{tag} | "
+          f"ranked_ok={summary['ranked_ok']} | "
+          f"matches_ok={summary['matches_ok']}/{summary['matches_total']} | "
+          f"errors={len(summary['errors'])}")
+    return summary
+
+    
+def uploadAllDataToS3Puuid(puuid):
     matchIdData = retrieveMatchIds(puuid)
     try:
         retrieveRankedData(puuid)
         for i in range(len(matchIdData)):
-            retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
-            #retrieveMatchData(matchIdData[i], puuid)
+            #retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
+            retrieveMatchData(matchIdData[i], puuid)
         print("Successfully Inserted Data")
     except Exception as e:
         raise Exception(e)
 
-retrieveAccountData("jerrrrbear", "NA1")
-uploadAllDataToS3("jerrrrbear", "NA1")
+#print(retrieveAccountData("jerrrrbear", "NA1"))
+#retrieveRankedData("JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
+#uploadAllDataToS3("jerrrrbear", "NA1")
 
+def uploadTrainingData():
+    rankings = [
+  { "name": "DIAMOND", "divisions": ["I"] },
+]
+    print(RIOT_API_KEY)
+    for j in range(len(rankings)):
+        for k in range(len(rankings[j]["divisions"])):
+            response = requests.get(f"https://na1.api.riotgames.com/lol/league/v4/entries/RANKED_SOLO_5x5/{rankings[j]['name']}/{rankings[j]['divisions'][k]}?page=1&api_key={RIOT_API_KEY}")
+            data = response.json()
+            for i in range(len(data)):
+                uploadAllDataToS3Puuid(data[i]['puuid'])
+                print("Uploaded" + data[i]['puuid'])
 
-
-
-
-
-
-#DATA VISUALISATIONS
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#Visualisations
-def visualize_cs_over_time(timeline_data):
-    """
-    Creates a line chart of minions and monsters killed (CS) over time.
-    """
-    print("Generating CS over time line chart...")
-    
-    records = []
-    for frame in timeline_data['frames']:
-        minutes = frame['timestamp'] / 60000
-        for participant_id, frame_data in frame['participantFrames'].items():
-            cs = frame_data.get('minionsKilled', 0) + frame_data.get('jungleMinionsKilled', 0)
-            records.append({
-                'minutes': minutes,
-                'participantId': int(participant_id),
-                'cs': cs
-            })
-
-    df = pd.DataFrame(records)
-    
-    # --- Plotting ---
-    plt.style.use('seaborn-v0_8-darkgrid')
-    plt.figure(figsize=(12, 7))
-    
-    sns.lineplot(
-        data=df,
-        x='minutes',
-        y='cs',
-        hue='participantId',
-        palette='tab10',
-        linewidth=2.5
-    )
-    
-    plt.title('Creep Score (CS) Over Time', fontsize=16)
-    plt.xlabel("Game Time (Minutes)", fontsize=12)
-    plt.ylabel("Total CS", fontsize=12)
-    plt.legend(title='Player ID')
-    plt.tight_layout()
-    plt.show()
-
-
-
-def visualize_match_stat(timeline_data, stat_to_plot='totalGold'):
-    """
-    Processes match data and creates a plot for a specific stat over time.
-
-    Args:
-        timeline_data (dict): The raw dictionary containing the match timeline.
-        stat_to_plot (str): The key of the stat to visualize (e.g., 'totalGold', 'xp', 'level').
-    """
-    print(f"Processing match data to visualize '{stat_to_plot}'...")
-
-    # --- Step 1: Extract Data ---
-    # Create an empty list to hold the structured data for each player at each frame.
-    records = []
-    # Loop through each frame in the timeline.
-    for frame in timeline_data['frames']:
-        # Each frame has a single timestamp for all participants in it.
-        # We convert it from milliseconds to minutes for a more readable chart.
-        minutes = frame['events'][0]['timestamp'] / 60000
-        
-        # Loop through each participant's data within the frame.
-        for participant_id, frame_data in frame['participantFrames'].items():
-            records.append({
-                'minutes': minutes,
-                'participantId': int(participant_id),
-                stat_to_plot: frame_data.get(stat_to_plot, 0)
-            })
-
-    # --- Step 2: Create a DataFrame ---
-    # Convert the list of records into a pandas DataFrame, which is great for handling tabular data.
-    df = pd.DataFrame(records)
-
-    # --- Step 3: Plot the Data ---
-    # Set a visually appealing style for the plot.
-    plt.style.use('seaborn-v0_8-darkgrid')
-    # Set the size of the output figure.
-    plt.figure(figsize=(12, 7))
-
-    # Use the seaborn library to create a line plot.
-    sns.lineplot(
-        data=df,
-        x='minutes',
-        y=stat_to_plot,
-        hue='participantId',  # This creates a separate colored line for each player.
-        palette='tab10',      # A color scheme that looks good with up to 10 lines.
-        linewidth=2.5
-    )
-
-    # --- Step 4: Customize and Show the Plot ---
-    # Add a title and labels to make the chart easy to understand.
-    plt.title(f"{stat_to_plot.replace('T', ' T').title()} Over Time", fontsize=16)
-    plt.xlabel("Game Time (Minutes)", fontsize=12)
-    plt.ylabel(f"{stat_to_plot.replace('T', ' T').title()}", fontsize=12)
-    plt.legend(title='Player ID')
-    plt.tight_layout()  # Ensures everything fits without overlapping.
-
-    # Finally, display the plot on the screen.
-    plt.show()
-
-def generate_kill_heatmap(timeline_data):
-    """
-    Generates a heatmap of champion kill locations on the Summoner's Rift map.
-    """
-    print("Generating kill location heatmap...")
-    
-    kill_positions = []
-    for frame in timeline_data['frames']:
-        for event in frame['events']:
-            if event.get('type') == 'CHAMPION_KILL':
-                pos = event.get('position')
-                if pos:
-                    kill_positions.append({'x': pos['x'], 'y': pos['y']})
-
-    if not kill_positions:
-        print("No champion kill events found in the data.")
-        return
-
-    df_kills = pd.DataFrame(kill_positions)
-
-    # --- Fetch Map Image and Plot ---
-    try:
-        url = 'https://preview.redd.it/fgrxon2d9km71.png?width=750&format=png&auto=webp&s=6e0157b2ec829080cb4f137c1e9aa99a3f0f30cd'
-        response = requests.get(url)
-        map_img = Image.open(BytesIO(response.content))
-    except Exception as e:
-        print(f"Could not download map image. Heatmap will have a blank background. Error: {e}")
-        map_img = None
-
-    fig, ax = plt.subplots(figsize=(10, 10))
-    ax.set_xticks([])
-    ax.set_yticks([])
-    
-    # Set map coordinates for the image background
-    map_extent = [0, 14820, 0, 14881]
-    if map_img:
-        ax.imshow(map_img, extent=map_extent)
-        
-    # Create the 2D density plot (heatmap)
-    sns.kdeplot(
-        data=df_kills,
-        x='x',
-        y='y',
-        fill=True,      # Fill the area under the density curve
-        cmap='rocket',  # A "hot" color map
-        alpha=0.6,      # Make it semi-transparent to see the map
-        ax=ax
-    )
-    
-    ax.set_xlim(map_extent[0], map_extent[1])
-    ax.set_ylim(map_extent[2], map_extent[3])
-    ax.set_title('Heatmap of Champion Kill Locations', fontsize=16)
-    plt.tight_layout()
-    plt.show()
-
-#generate_kill_heatmap(retrieveMatchDataFramesTimeline("NA1_5368916340"))
-#visualize_match_stat(retrieveMatchDataFramesTimeline("NA1_5368916340"))
-#visualize_cs_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"))
-
-def visualize_champion_stat_over_time(timeline_data, stat_to_plot='healthMax'):
-    """
-    Creates a line chart for a specific champion stat over time for all players.
-    
-    Args:
-        timeline_data (dict): The raw dictionary containing the match timeline.
-        stat_to_plot (str): The key of the stat inside 'championStats' to visualize.
-                           Examples: 'healthMax', 'attackDamage', 'abilityPower', 'armor'.
-    """
-    print(f"Generating chart for champion stat: '{stat_to_plot}'...")
-    
-    # --- Step 1: Extract Data ---
-    records = []
-    for frame in timeline_data['frames']:
-        minutes = frame['timestamp'] / 60000
-        for participant_id, frame_data in frame['participantFrames'].items():
-            # Navigate into the nested championStats dictionary
-            champion_stats = frame_data.get('championStats', {})
-            # Get the specific stat, defaulting to 0 if not found
-            stat_value = champion_stats.get(stat_to_plot, 0)
-            
-            records.append({
-                'minutes': minutes,
-                'participantId': int(participant_id),
-                'statValue': stat_value
-            })
-            
-    # --- Step 2: Create a DataFrame ---
-    df = pd.DataFrame(records)
-    
-    # --- Step 3: Plot the Data ---
-    plt.style.use('seaborn-v0_8-darkgrid')
-    plt.figure(figsize=(12, 8))
-    
-    sns.lineplot(
-        data=df,
-        x='minutes',
-        y='statValue',
-        hue='participantId',
-        palette='tab10',
-        linewidth=2.5
-    )
-    
-    # --- Step 4: Customize and Show the Plot ---
-    # Create a clean title from the stat key (e.g., 'healthMax' -> 'Health Max')
-    clean_title = ''.join([' ' + char if char.isupper() else char for char in stat_to_plot]).strip().title()
-    
-    plt.title(f"{clean_title} Over Time", fontsize=16)
-    plt.xlabel("Game Time (Minutes)", fontsize=12)
-    plt.ylabel(clean_title, fontsize=12)
-    plt.legend(title='Player ID', bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-    plt.show()
-
-#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='healthMax')
-
-# Example 2: Graph the attack damage of all champions over time
-#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='attackDamage')
-
-# Example 3: Graph the ability power of all champions over time
-#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='abilityPower')
-
-# Example 4: Graph the movement speed of all champions over time
-#visualize_champion_stat_over_time(retrieveMatchDataFramesTimeline("NA1_5368916340"), stat_to_plot='movementSpeed')
