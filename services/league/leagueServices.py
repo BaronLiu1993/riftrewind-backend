@@ -8,6 +8,7 @@ import json
 load_dotenv()
 
 RIOT_API_KEY = os.environ.get("RIOT_API_KEY")
+glue = boto3.client('glue', region_name='us-west-2')
 s3 = boto3.client('s3')
 
 def uploadToS3Match(jsonData, bucket, objectName):
@@ -87,8 +88,6 @@ def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
         out_dir = os.path.join("timestamp", puuid)
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{matchId}.json")
-        print(len(data["info"]["frames"]))
-        #["frames"][0]
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(data["info"]["frames"][len(data["info"]["frames"])], f, ensure_ascii=False, indent=2)
         #uploadToS3Match(data["info"], "riftrewind", f"timestamp/{puuid}/{matchId}.json")    
@@ -103,10 +102,22 @@ def uploadAllDataToS3(riotId: str, tag: str):
     try:
         retrieveRankedData(puuid)
         for i in range(len(matchIdData)):
-            #retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
             retrieveMatchData(matchIdData[i], puuid)
-    except Exception as e:
-        raise Exception(e)
+        glue = boto3.client('glue', region_name='us-west-2')
+        
+        crawler_name = "riftrewindinputcrawler"
+        glue.update_crawler(
+            Name=crawler_name,
+            Targets={
+                "S3Targets": [
+                    {"Path": f"s3://riftrewind/playerinput/{puuid}/"},
+                ]
+            }
+        )        
+        glue.start_crawler(Name=crawler_name)
+       
+    except:
+        raise Exception("Failed")
        
     
 def uploadAllDataToS3Puuid(puuid):
@@ -121,7 +132,7 @@ def uploadAllDataToS3Puuid(puuid):
 
 #print(retrieveAccountData("jerrrrbear", "NA1"))
 #retrieveRankedData("JZdg2rWR6k16dSJFalqJeIXNhaa-yYFFhr0XdpwQbZqiEAI2rPb4Npjpd2zw_IIbAV31xmRtrz4p6g")
-#uploadAllDataToS3("jerrrrbear", "NA1")
+uploadAllDataToS3("jerrrrbear", "NA1")
 
 def uploadTrainingData():
     rankings = [
