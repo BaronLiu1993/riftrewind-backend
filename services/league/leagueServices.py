@@ -120,26 +120,7 @@ def uploadAllDataToS3(riotId: str, tag: str):
         raise Exception("Failed")
        
     
-def uploadAllDataToS3Puuid(puuid):
-    matchIdData = retrieveMatchIds(puuid)
-    try:
-        retrieveRankedData(puuid)
-        for i in range(len(matchIdData)):
-            #retrieveMatchDataFramesTimeline(matchIdData[i], puuid)
-            retrieveMatchData(matchIdData[i], puuid)
-    except Exception as e:
-        raise Exception(e)
 
-def uploadTrainingData():
-    rankings = [
-  { "name": "DIAMOND", "divisions": ["I"] },
-]
-    print(RIOT_API_KEY)
-    for j in range(len(rankings)):
-        for k in range(len(rankings[j]["divisions"])):
-            response = requests.get(f"https://na1.api.riotgames.com/lol/league/v4/entries/RANKED_SOLO_5x5/{rankings[j]['name']}/{rankings[j]['divisions'][k]}?page=1&api_key={RIOT_API_KEY}")
-            data = response.json()
-            for i in range(len(data)):
-                uploadAllDataToS3Puuid(data[i]['puuid'])
-                print("Uploaded" + data[i]['puuid'])
+
+
 
