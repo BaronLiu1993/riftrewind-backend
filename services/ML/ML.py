@@ -3,8 +3,11 @@ import uuid
 from dotenv import load_dotenv
 import os
 import awswrangler as wr
-import random
-import time
+from io import StringIO
+import pandas as pd
+import json 
+import re
+
 
 
 s3 = boto3.client('s3')
@@ -15,7 +18,6 @@ load_dotenv()
 
 agentId = os.environ.get("AGENT_ID")
 agentAliasId = os.environ.get("AGENT_ALIAS_ID")
-
 
 
 #Get the data from athena that is aggregated and then insert into athena
@@ -75,8 +77,103 @@ WHERE gpm IS NOT NULL AND cs_pm IS NOT NULL AND dmg_pm IS NOT NULL
     )
     """
 
-def executeAthenaQueryXGBoost(bucketPath):
-    pass
+def executeAthenaQueryXGBoost(puuid):
+    query = f"""
+SELECT
+  allinpings, assistmepings, assists, baronkills, basicpings, bountylevel,
+  champexperience, champlevel, championtransform, commandpings, 
+  consumablespurchased, damagedealttobuildings, damagedealttoobjectives, 
+  damagedealttoturrets, damageselfmitigated, dangerpings, deaths, 
+  detectorwardsplaced, doublekills, dragonkills,
+  CAST(firstbloodassist AS INTEGER) AS firstbloodassist,
+  CAST(firstbloodkill AS INTEGER) AS firstbloodkill,
+  CAST(firsttowerassist AS INTEGER) AS firsttowerassist,
+  CAST(firsttowerkill AS INTEGER) AS firsttowerkill,
+  goldearned, goldspent, itemspurchased,
+  item0, item1, item2, item3, item4, item5, item6,
+  killingsprees, kills, largestcriticalstrike, largestkillingspree, 
+  largestmultikill, longesttimespentliving,
+  magicdamagedealt, magicdamagedealttochampions, magicdamagetaken,
+  physicaldamagedealt, physicaldamagedealttochampions, physicaldamagetaken,
+  truedamagedealt, truedamagedealttochampions, truedamagetaken,
+  needvisionpings, neutralminionskilled, objectivesstolen, 
+  objectivesstolenassists, sightwardsboughtingame,
+  totaldamagedealt, totaldamagedealttochampions, totaldamageshieldedonteammates,
+  totaldamagetaken, totalenemyjungleminionskilled, totalheal, 
+  totalhealsonteammates, totalminionskilled, totaltimeccdealt,
+  totaltimespentdead, totalunitshealed, triplekills,
+  turretkills, turrettakedowns, inhibitorkills, inhibitortakedowns,
+  visionclearedpings, visionscore, visionwardsboughtingame,
+  wardskilled, wardsplaced,
+  spell1casts, spell2casts, spell3casts, spell4casts,
+  summoner1casts, summoner2casts,
+  enemymissingpings, enemyvisionpings, getbackpings, holdpings,
+  onmywaypings, pushpings, retreatpings,
+  LOWER(championname) AS championname,
+  LOWER(individualposition) AS individualposition,
+  LOWER(lane) AS lane,
+  LOWER(role) AS role,
+  LOWER(teamposition) AS teamposition,
+  timeccingothers, timeplayed,
+  placement, playersubteamid, subteamplacement
+FROM {puuid}
+WHERE championname IS NOT NULL
+  AND timeplayed > 0
+  AND champlevel > 0;
+"""
+    df = wr.athena.read_sql_query(
+        sql=query,
+        database="riftrewindinput",
+        boto3_session=boto3.Session(region_name='us-west-2')
+    )
+    return df
+
+def executeXGBoost(df):
+    original = df.copy()
+    
+    encoded = df.copy()
+    for col in ['championname', 'individualposition', 'lane', 'role', 'teamposition']:
+        if col in encoded.columns:
+            dummies = pd.get_dummies(encoded[col], prefix=col, drop_first=True)
+            encoded = pd.concat([encoded.drop(col, axis=1), dummies], axis=1)
+    encoded = encoded.fillna(0)
+    
+    csv_buffer = StringIO()
+    encoded.to_csv(csv_buffer, header=False, index=False)
+    
+    response = sagemaker.invoke_endpoint(
+        EndpointName="canvas-new-deployment-10-16-2025-6-05-PM",
+        ContentType='text/csv',
+        Body=csv_buffer.getvalue()
+    )
+    
+    result = response['Body'].read().decode('utf-8')
+    predictions = []    
+    for idx, line in enumerate(result.strip().split('\n')):
+        parts = re.match(r'(\d+),([\d.]+),"(\[.*?\])","(\[.*?\])"', line)
+        
+        if parts:
+            pred_class = int(parts.group(1))
+            probs = json.loads(parts.group(3))
+            labels = json.loads(parts.group(4).replace("'", '"'))
+            
+            win_prob = float(dict(zip(labels, probs)).get('1', probs[1]))
+            
+            predictions.append({
+                'match_id': idx,
+                'champion': str(original.iloc[idx].get('championname', 'unknown')),
+                'win_probability': round(win_prob, 4),
+                'predicted_outcome': 'WIN' if pred_class == 1 else 'LOSS',
+                'top_features': [
+                    {'name': col, 'value': original.iloc[idx][col]}
+                    for col in ['kills', 'deaths', 'assists', 'goldearned', 
+                               'totaldamagedealt', 'totalminionskilled', 
+                               'visionscore', 'turretkills', 'baronkills', 'dragonkills']
+                    if col in original.columns and original.iloc[idx][col] > 0
+                ][:10]
+            })
+    
+    return json.dumps(predictions, indent=2)
 
 def callKnowledgeBase():
     pass
@@ -103,6 +200,7 @@ def callAgent(prompt):
     except Exception as e:
         raise Exception(e)
     
+"""
 def videoGenerationJob(bedrock_runtime, prompt, output_s3_uri):
     model_id = "amazon.nova-reel-v1:0"
     seed = random.randint(0, 2147483646)
@@ -131,22 +229,11 @@ def videoGenerationJob(bedrock_runtime, prompt, output_s3_uri):
 
 
 def query_job_status(bedrock_runtime, invocation_arn):
-    """
-    Queries the status of an asynchronous video generation job.
-
-    :param bedrock_runtime: The Bedrock runtime client
-    :param invocation_arn: The ARN of the async invocation to check
-
-    :return: The runtime response containing the job status and details
-    """
     return bedrock_runtime.get_async_invoke(invocationArn=invocation_arn)
 
 
 def main():
-    """
-    Main function that demonstrates the complete workflow for generating
-    a video from a text prompt using Amazon Nova Reel.
-    """
+
     # Create a Bedrock Runtime client
     # Note: Credentials will be loaded from the environment or AWS CLI config
     bedrock_runtime = boto3.client("bedrock-runtime", region_name="us-east-1")
@@ -183,6 +270,9 @@ def main():
         else:
             print("In progress. Waiting 15 seconds...")
             time.sleep(15)
+"""
 
+test = executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
+print(executeXGBoost(test))
 #print(callAgent("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
 #executeAthenaQueryKMeans("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
