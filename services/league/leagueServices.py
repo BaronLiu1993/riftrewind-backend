@@ -72,13 +72,9 @@ def retrieveMatchData(matchId: str, puuid):
         for i in range(len(data["info"]["participants"])):
             if data["info"]["participants"][i]["puuid"] == str(puuid):
                 uploadToS3Match(data["info"]["participants"][i], "riftrewind", f"playerinput/{puuid}/{matchId}.json")
-        #for i in range(len(data["info"]["teams"])):
-        #    uploadToS3Match(data["info"]["teams"][i], "riftrewind", f"match/teams/{puuid}/{matchId}.json")
-
     except Exception as e:
         print(e)
 
-#extract the correct PUUID too out from the output of the match data for each and aggregate as well
 def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
     try:
         url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}/timeline?api_key={RIOT_API_KEY}"        
@@ -95,7 +91,7 @@ def retrieveMatchDataFramesTimeline(matchId: str, puuid: str):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
-#Function inserts all necessary Data
+#Function inserts all necessary Data for player
 def uploadAllDataToS3(riotId: str, tag: str):
     puuid = retrieveAccountData(riotId, tag)
     matchIdData = retrieveMatchIds(puuid)

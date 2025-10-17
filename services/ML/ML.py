@@ -5,8 +5,7 @@ import os
 import awswrangler as wr
 from io import StringIO
 import pandas as pd
-import json 
-import re
+import numpy as np
 
 
 
@@ -126,61 +125,29 @@ WHERE championname IS NOT NULL
         database="riftrewindinput",
         boto3_session=boto3.Session(region_name='us-west-2')
     )
-    return df
 
-def executeXGBoost(df):
-    original = df.copy()
-    
-    encoded = df.copy()
-    for col in ['championname', 'individualposition', 'lane', 'role', 'teamposition']:
-        if col in encoded.columns:
-            dummies = pd.get_dummies(encoded[col], prefix=col, drop_first=True)
-            encoded = pd.concat([encoded.drop(col, axis=1), dummies], axis=1)
-    encoded = encoded.fillna(0)
-    
+ 
     csv_buffer = StringIO()
-    encoded.to_csv(csv_buffer, header=False, index=False)
-    
-    response = sagemaker.invoke_endpoint(
+    df.to_csv(csv_buffer, header=False, index=False)
+    body = csv_buffer.getvalue()
+
+    resp = sagemaker.invoke_endpoint(
         EndpointName="canvas-new-deployment-10-16-2025-6-05-PM",
-        ContentType='text/csv',
-        Body=csv_buffer.getvalue()
+        ContentType="text/csv",
+        Body=body,
+        EnableExplanations='`true`'
     )
-    
-    result = response['Body'].read().decode('utf-8')
-    predictions = []    
-    for idx, line in enumerate(result.strip().split('\n')):
-        parts = re.match(r'(\d+),([\d.]+),"(\[.*?\])","(\[.*?\])"', line)
-        
-        if parts:
-            pred_class = int(parts.group(1))
-            probs = json.loads(parts.group(3))
-            labels = json.loads(parts.group(4).replace("'", '"'))
-            
-            win_prob = float(dict(zip(labels, probs)).get('1', probs[1]))
-            
-            predictions.append({
-                'match_id': idx,
-                'champion': str(original.iloc[idx].get('championname', 'unknown')),
-                'win_probability': round(win_prob, 4),
-                'predicted_outcome': 'WIN' if pred_class == 1 else 'LOSS',
-                'top_features': [
-                    {'name': col, 'value': original.iloc[idx][col]}
-                    for col in ['kills', 'deaths', 'assists', 'goldearned', 
-                               'totaldamagedealt', 'totalminionskilled', 
-                               'visionscore', 'turretkills', 'baronkills', 'dragonkills']
-                    if col in original.columns and original.iloc[idx][col] > 0
-                ][:10]
-            })
-    
-    return json.dumps(predictions, indent=2)
+
+    print(resp)
+
 
 def callKnowledgeBase():
     pass
 
 #Given These Stats give a funny description of what the player is 
 #Input K means tells them what you are in terms of playstyle, converts it into funny meme 
-#takes data too
+
+#takes data too, given these data if the user won then what did they do good, if they lost what did they do poorly
 def callAgent(prompt):
     session_id = str(uuid.uuid4())
     try:
@@ -272,7 +239,7 @@ def main():
             time.sleep(15)
 """
 
-test = executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
-print(executeXGBoost(test))
+
+executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
 #print(callAgent("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
-#executeAthenaQueryKMeans("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
+
