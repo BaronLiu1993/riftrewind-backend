@@ -138,5 +138,5 @@ LIMIT 40;
     return json_string
 
 
-#print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
+print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
 

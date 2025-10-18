@@ -137,7 +137,7 @@ WHERE championname IS NOT NULL
         Body=body,
         EnableExplanations='`true`'
     )
-
+    
     print(resp)
 
 
