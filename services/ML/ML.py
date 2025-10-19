@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 import awswrangler as wr
 from io import StringIO
+import random
 import pandas as pd
 import numpy as np
 
@@ -148,7 +149,7 @@ def callKnowledgeBase():
 #Input K means tells them what you are in terms of playstyle, converts it into funny meme 
 
 #takes data too, given these data if the user won then what did they do good, if they lost what did they do poorly
-def callAgent(prompt):
+def generateAgentInsights(prompt):
     session_id = str(uuid.uuid4())
     try:
         resp = bedrock.invoke_agent(
@@ -166,80 +167,12 @@ def callAgent(prompt):
         return "".join(chunks)
     except Exception as e:
         raise Exception(e)
-    
-"""
-def videoGenerationJob(bedrock_runtime, prompt, output_s3_uri):
-    model_id = "amazon.nova-reel-v1:0"
-    seed = random.randint(0, 2147483646)
-    model_input = {
-        "taskType": "TEXT_VIDEO",
-        "textToVideoParams": {"text": prompt},
-        "videoGenerationConfig": {
-            "fps": 24,
-            "durationSeconds": 6,
-            "dimension": "1280x720",
-            "seed": seed,
-        },
-    }
 
-    # Specify the S3 location for the output video
-    output_config = {"s3OutputDataConfig": {"s3Uri": output_s3_uri}}
-
-    # Invoke the model asynchronously
-    response = bedrock_runtime.start_async_invoke(
-        modelId=model_id, modelInput=model_input, outputDataConfig=output_config
-    )
-
-    invocation_arn = response["invocationArn"]
-
-    return invocation_arn
+#given this data, analyse the trend and see how the player is doing after each match
+def explainGraphs(prompt):
+    pass
 
 
-def query_job_status(bedrock_runtime, invocation_arn):
-    return bedrock_runtime.get_async_invoke(invocationArn=invocation_arn)
-
-
-def main():
-
-    # Create a Bedrock Runtime client
-    # Note: Credentials will be loaded from the environment or AWS CLI config
-    bedrock_runtime = boto3.client("bedrock-runtime", region_name="us-east-1")
-
-    # Configure the text prompt and output location
-    prompt = "Closeup of a cute old steampunk robot. Camera zoom in."
-
-    # Verify the S3 URI has been set to a valid bucket
-    if "REPLACE-WITH-YOUR-S3-BUCKET-NAME" in OUTPUT_S3_URI:
-        print("ERROR: You must replace the OUTPUT_S3_URI with your own S3 bucket URI")
-        return
-
-    print("Submitting video generation job...")
-    invocation_arn = start_text_to_video_generation_job(
-        bedrock_runtime, prompt, OUTPUT_S3_URI
-    )
-    print(f"Job started with invocation ARN: {invocation_arn}")
-
-    # Poll for job completion
-    while True:
-        print("\nPolling job status...")
-        job = query_job_status(bedrock_runtime, invocation_arn)
-        status = job["status"]
-
-        if status == "Completed":
-            bucket_uri = job["outputDataConfig"]["s3OutputDataConfig"]["s3Uri"]
-            print(f"\nSuccess! The video is available at: {bucket_uri}/output.mp4")
-            break
-        elif status == "Failed":
-            print(
-                f"\nVideo generation failed: {job.get('failureMessage', 'Unknown error')}"
-            )
-            break
-        else:
-            print("In progress. Waiting 15 seconds...")
-            time.sleep(15)
-"""
-
-
-executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
-#print(callAgent("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
+#executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
+print(generateAgentInsights("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
 

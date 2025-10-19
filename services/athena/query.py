@@ -35,10 +35,7 @@ SELECT
       (CAST(COALESCE(damagedealttoobjectives,0) AS DOUBLE) 
        / NULLIF(CAST(timeplayed AS DOUBLE),0)) * 60                                      AS obj_dmg_per_min,
 
-      -- Fights/picks near objectives (good macro timing)
       COALESCE(challenges.junglerTakedownsNearDamagedEpicMonster,0)                      AS fights_near_objectives,
-
-      -- === Turret pressure ===
       COALESCE(turrettakedowns,0)                                                        AS turret_takedowns,
       (CAST(COALESCE(damagedealttoturrets,0) AS DOUBLE)
        / NULLIF(CAST(timeplayed AS DOUBLE),0)) * 60                                      AS turret_dpm,
@@ -137,6 +134,132 @@ LIMIT 40;
     json_string = df.to_json(orient='records')
     return json_string
 
+def generateGraphData(puuid):
+    query = f"""
+WITH base AS (
+  SELECT
+    puuid,
+    timeplayed,  -- seconds
+    COALESCE(allinpings,0) + COALESCE(assistmepings,0) + COALESCE(basicpings,0) +
+    COALESCE(commandpings,0) + COALESCE(dangerpings,0) + COALESCE(enemymissingpings,0) +
+    COALESCE(enemyvisionpings,0) + COALESCE(getbackpings,0) + COALESCE(holdpings,0) +
+    COALESCE(onmywaypings,0) + COALESCE(pushpings,0) + COALESCE(retreatpings,0) +
+    COALESCE(visionclearedpings,0) + COALESCE(needvisionpings,0)                   AS ping_total,
+
+    COALESCE(wardsplaced,0) + COALESCE(wardskilled,0) + COALESCE(detectorwardsplaced,0) +
+    COALESCE(sightwardsboughtingame,0) + COALESCE(visionwardsboughtingame,0) +
+    COALESCE(challenges.controlWardsPlaced,0)                                       AS ward_actions,
+
+    COALESCE(assists,0)                                                             AS assists,
+
+    COALESCE(challenges.visionScorePerMinute,
+             CASE WHEN timeplayed > 0
+                  THEN CAST(visionscore AS DOUBLE) / (CAST(timeplayed AS DOUBLE)/60.0)
+                  ELSE NULL END)                                                    AS vspm,
+
+    COALESCE(dragonkills,0) + COALESCE(baronkills,0) + COALESCE(challenges.riftHeraldTakedowns,0) AS big_objectives,
+    COALESCE(objectivesstolen,0) + 0.5*COALESCE(objectivesstolenassists,0)                         AS objective_steals,
+
+    COALESCE(turretkills,0) + COALESCE(turrettakedowns,0)                                          AS turret_events,
+    CAST(COALESCE(damagedealttoturrets,0) AS DOUBLE)                                               AS turret_damage,
+
+    COALESCE(totalenemyjungleminionskilled,0) + COALESCE(challenges.scuttleCrabKills,0)            AS neutral_ctrl,
+
+    CAST(COALESCE(challenges.killParticipation, NULL) AS DOUBLE)                                   AS kp
+  FROM {puuid}
+),
+indexed AS (
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (PARTITION BY puuid ORDER BY timeplayed) AS totaldamagedealttochampions, ,
+    NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0)               AS per10_den
+  FROM base b
+),
+rates AS (
+  SELECT
+    puuid,
+    match_index,
+    timeplayed,
+    (CAST(ping_total AS DOUBLE)   / per10_den)                               AS comm_pings_per10,
+    (CAST(ward_actions AS DOUBLE) / per10_den)                               AS comm_wards_per10,
+    (CAST(assists AS DOUBLE)      / per10_den)                               AS comm_assists_per10,
+    vspm                                                                  AS comm_vspm,
+    (CAST(big_objectives AS DOUBLE)     / per10_den)                         AS macro_bigobj_per10,
+    (CAST(objective_steals AS DOUBLE)   / per10_den)                         AS macro_steals_per10,
+    (CAST(turret_events AS DOUBLE)      / per10_den)                         AS macro_turret_events_per10,
+    (turret_damage / 5000.0)        / per10_den                              AS macro_turret_dmg_scaled_per10,
+    (CAST(neutral_ctrl AS DOUBLE)        / per10_den)                         AS macro_neutral_per10,
+    kp                                                                       AS macro_kp
+  FROM indexed
+),
+stats AS (
+  SELECT
+    puuid,
+    AVG(comm_pings_per10)  AS mu_comm_pings,   STDDEV_SAMP(comm_pings_per10)  AS sd_comm_pings,
+    AVG(comm_wards_per10)  AS mu_comm_wards,   STDDEV_SAMP(comm_wards_per10)  AS sd_comm_wards,
+    AVG(comm_assists_per10)AS mu_comm_assists, STDDEV_SAMP(comm_assists_per10)AS sd_comm_assists,
+    AVG(comm_vspm)         AS mu_comm_vspm,    STDDEV_SAMP(comm_vspm)         AS sd_comm_vspm,
+    AVG(macro_bigobj_per10)        AS mu_macro_bigobj,   STDDEV_SAMP(macro_bigobj_per10)        AS sd_macro_bigobj,
+    AVG(macro_steals_per10)        AS mu_macro_steals,   STDDEV_SAMP(macro_steals_per10)        AS sd_macro_steals,
+    AVG(macro_turret_events_per10) AS mu_macro_turret_e, STDDEV_SAMP(macro_turret_events_per10) AS sd_macro_turret_e,
+    AVG(macro_turret_dmg_scaled_per10) AS mu_macro_tdmg, STDDEV_SAMP(macro_turret_dmg_scaled_per10) AS sd_macro_tdmg,
+    AVG(macro_neutral_per10)       AS mu_macro_neutral,  STDDEV_SAMP(macro_neutral_per10)       AS sd_macro_neutral,
+    AVG(macro_kp)                  AS mu_macro_kp,       STDDEV_SAMP(macro_kp)                  AS sd_macro_kp
+  FROM rates
+  GROUP BY puuid
+),
+scored AS (
+  SELECT
+    r.puuid,
+    r.match_index,
+    r.timeplayed,
+
+    CASE WHEN s.sd_comm_pings   > 0 THEN (r.comm_pings_per10   - s.mu_comm_pings)   / s.sd_comm_pings   ELSE 0 END AS z_comm_pings,
+    CASE WHEN s.sd_comm_wards   > 0 THEN (r.comm_wards_per10   - s.mu_comm_wards)   / s.sd_comm_wards   ELSE 0 END AS z_comm_wards,
+    CASE WHEN s.sd_comm_assists > 0 THEN (r.comm_assists_per10 - s.mu_comm_assists) / s.sd_comm_assists ELSE 0 END AS z_comm_assists,
+    CASE WHEN s.sd_comm_vspm    > 0 THEN (r.comm_vspm          - s.mu_comm_vspm)    / s.sd_comm_vspm    ELSE 0 END AS z_comm_vspm,
+
+    CASE WHEN s.sd_macro_bigobj > 0 THEN (r.macro_bigobj_per10 - s.mu_macro_bigobj) / s.sd_macro_bigobj ELSE 0 END AS z_macro_bigobj,
+    CASE WHEN s.sd_macro_steals > 0 THEN (r.macro_steals_per10 - s.mu_macro_steals) / s.sd_macro_steals ELSE 0 END AS z_macro_steals,
+    CASE WHEN s.sd_macro_turret_e > 0 THEN (r.macro_turret_events_per10 - s.mu_macro_turret_e) / s.sd_macro_turret_e ELSE 0 END AS z_macro_turret_e,
+    CASE WHEN s.sd_macro_tdmg   > 0 THEN (r.macro_turret_dmg_scaled_per10 - s.mu_macro_tdmg) / s.sd_macro_tdmg ELSE 0 END AS z_macro_tdmg,
+    CASE WHEN s.sd_macro_neutral> 0 THEN (r.macro_neutral_per10 - s.mu_macro_neutral) / s.sd_macro_neutral ELSE 0 END AS z_macro_neutral,
+    CASE WHEN s.sd_macro_kp     > 0 THEN (r.macro_kp - s.mu_macro_kp) / s.sd_macro_kp ELSE 0 END AS z_macro_kp
+  FROM rates r
+  JOIN stats s
+    ON r.puuid = s.puuid
+),
+final AS (
+  SELECT
+    puuid,
+    match_index,
+    ((z_comm_pings + z_comm_wards + z_comm_assists + z_comm_vspm) / 4.0)                          AS communication_score,
+    ((z_macro_bigobj + z_macro_steals + z_macro_turret_e + z_macro_tdmg + z_macro_neutral + z_macro_kp) / 6.0) AS macro_score
+  FROM scored
+)
+SELECT
+  puuid,
+  match_index,
+  communication_score,
+  macro_score,
+  LAG(communication_score) OVER (PARTITION BY puuid ORDER BY match_index)                                   AS prev_comm_score,
+  communication_score - LAG(communication_score) OVER (PARTITION BY puuid ORDER BY match_index)             AS delta_comm,
+  AVG(communication_score) OVER (PARTITION BY puuid ORDER BY match_index ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS comm_rolling_avg_5,
+  LAG(macro_score) OVER (PARTITION BY puuid ORDER BY match_index)                                            AS prev_macro_score,
+  macro_score - LAG(macro_score) OVER (PARTITION BY puuid ORDER BY match_index)                              AS delta_macro,
+  AVG(macro_score) OVER (PARTITION BY puuid ORDER BY match_index ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)   AS macro_rolling_avg_5
+FROM final
+ORDER BY puuid, match_index;
+"""
+    df = wr.athena.read_sql_query(
+        sql=query,
+        database="riftrewindinput",
+        boto3_session=boto3.Session(region_name='us-west-2')
+    )
+    json_string = df.to_json(orient='records')
+    return json_string
+#explain composite score of a bunch of things and feed into LLM
+#remember to get the raw data too so players know where they can get better with improving macro
 
 print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
 
