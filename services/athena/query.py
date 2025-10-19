@@ -134,7 +134,83 @@ LIMIT 40;
     json_string = df.to_json(orient='records')
     return json_string
 
-def generateGraphData(puuid):
+def generateQuantitativeStatsGraphData(puuid):
+    query = f"""
+WITH base AS (
+  SELECT
+      puuid,
+      timeplayed,
+      CAST(kills AS DOUBLE)                       AS kills,
+      CAST(deaths AS DOUBLE)                      AS deaths,
+      CAST(assists AS DOUBLE)                     AS assists,
+      CAST(visionscore AS DOUBLE)                 AS vision_score,
+      CAST(totaldamagedealttochampions AS DOUBLE) AS dmg_to_champs,
+      CAST(goldearned AS DOUBLE)                  AS gold,
+      (CAST(kills AS DOUBLE) + CAST(assists AS DOUBLE)) / GREATEST(CAST(deaths AS DOUBLE), 1) AS kda
+  FROM {puuid}
+),
+indexed AS (
+  SELECT
+    puuid,
+    timeplayed,
+    kills, deaths, assists, vision_score, dmg_to_champs, gold, kda,
+    ROW_NUMBER() OVER (PARTITION BY puuid ORDER BY timeplayed) AS match_index
+  FROM base
+),
+long_metrics AS (
+  SELECT
+    puuid,
+    match_index,
+    timeplayed,
+    kv.metric,
+    kv.value
+  FROM indexed
+  CROSS JOIN UNNEST(
+    MAP(
+      ARRAY['kills','deaths','assists','kda','vision_score','dmg_to_champs','gold'],
+      ARRAY[kills,  deaths,  assists,  kda,  vision_score,   dmg_to_champs,  gold]
+    )
+  ) AS kv (metric, value)
+),
+with_trends AS (
+  SELECT
+    puuid,
+    match_index,
+    metric,
+    value,
+    LAG(value) OVER w                                                   AS prev_value,
+    value - LAG(value) OVER w                                           AS delta,
+    CASE
+      WHEN LAG(value) OVER w IS NULL OR LAG(value) OVER w = 0
+        THEN NULL
+      ELSE (value - LAG(value) OVER w) / ABS(LAG(value) OVER w)
+    END                                                                 AS pct_change,
+    AVG(value) OVER (w ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)        AS rolling_avg_5,
+    AVG(value) OVER (w ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)        AS rolling_avg_10
+  FROM long_metrics
+  WINDOW w AS (PARTITION BY puuid, metric ORDER BY match_index)
+)
+SELECT
+  puuid,
+  match_index,
+  metric,
+  value,
+  delta,
+  pct_change,
+  rolling_avg_5,
+  rolling_avg_10
+FROM with_trends
+ORDER BY puuid, metric, match_index;
+"""
+    df = wr.athena.read_sql_query(
+        sql=query,
+        database="riftrewindinput",
+        boto3_session=boto3.Session(region_name='us-west-2')
+    )
+    json_string = df.to_json(orient='records')
+    return json_string
+
+def generateQualitativeStatsGraphData(puuid):
     query = f"""
 WITH base AS (
   SELECT
@@ -258,6 +334,10 @@ ORDER BY puuid, match_index;
     )
     json_string = df.to_json(orient='records')
     return json_string
+
+
+#REMEMBER PUT DATA INTO LLM TO ANALYSE AND TALK ABOUT TRENDS AND WHERE THEY CAN IMPROVE I WILL RETURN THE RAW DATA TOO TO THE LLM
+#get the gold data over too and graph with scatter plot
 #explain composite score of a bunch of things and feed into LLM
 #remember to get the raw data too so players know where they can get better with improving macro
 
