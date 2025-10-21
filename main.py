@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from services.league.leagueServices import uploadAllDataToS3
-from services.athena.query import getMacroData
-from services.ML.ML import callAgent
+from services.athena.query import getMacroData, generateQualitativeStatsGraphData, generateQuantitativeStatsGraphData
+from services.ML.ML import generateAgentInsights
 from pydantic import BaseModel
 import json
 
@@ -36,16 +36,25 @@ async def retrieveMacroData(req: PuuidRequest):
 @app.post("/analyse/macrodata")
 async def analyseMacroData(req: MacroData):
     try:
-        data = callAgent(req.data)
+        data = generateAgentInsights(req.data)
         return data
     except Exception as e:
         print(e)
 
-
-@app.post("/macrodata/generate/graphs")
-async def generateMacroDrafts(req: MacroData):
+@app.post("/graphs/quantitative")
+async def generateMacroDrafts(req: PuuidRequest):
     try:
-        graphData = callAgent(req.data)
-        return graphData
+        data = generateQuantitativeStatsGraphData(req.puuid)
+        outputJson = json.loads(data)
+        return outputJson
+    except Exception as e:
+        print(e)
+
+@app.post("/graphs/qualitative")
+async def generateMacroDrafts(req: PuuidRequest):
+    try:
+        data = generateQualitativeStatsGraphData(req.puuid)
+        outputJson = json.loads(data)
+        return outputJson
     except Exception as e:
         print(e)

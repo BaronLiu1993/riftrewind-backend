@@ -174,5 +174,5 @@ def explainGraphs(prompt):
 
 
 #executeAthenaQueryXGBoost("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g")
-print(generateAgentInsights("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
+#print(generateAgentInsights("K means told me i am an aggressive laner give me a funny way to describe my playstyle. Be creative and include league references"))
 

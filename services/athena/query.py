@@ -242,7 +242,7 @@ WITH base AS (
     COALESCE(totalenemyjungleminionskilled,0) + COALESCE(challenges.scuttleCrabKills,0)            AS neutral_ctrl,
 
     CAST(COALESCE(challenges.killParticipation, NULL) AS DOUBLE)                                   AS kp
-  FROM {puuid}
+  FROM {puuid};
 ),
 indexed AS (
   SELECT
@@ -341,5 +341,5 @@ ORDER BY puuid, match_index;
 #explain composite score of a bunch of things and feed into LLM
 #remember to get the raw data too so players know where they can get better with improving macro
 
-print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
+#print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
 
