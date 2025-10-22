@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from services.league.leagueServices import uploadAllDataToS3
-from services.athena.query import getMacroData, generateQualitativeStatsGraphData, generateQuantitativeStatsGraphData
+from services.athena.query import getMacroData, generateQualitativeStatsGraphData, generateQuantitativeStatsGraphData, generateMacroMicroComparison
 from services.ML.ML import generateAgentInsights
 from pydantic import BaseModel
 import json
@@ -41,6 +41,15 @@ async def analyseMacroData(req: MacroData):
     except Exception as e:
         print(e)
 
+@app.post("/analyse/microdata")
+async def analyseMicroData(req: MacroData):
+    try:
+        data = generateAgentInsights(req.data)
+        return data
+    except Exception as e:
+        print(e)
+
+#Delete these tbh
 @app.post("/graphs/quantitative")
 async def generateMacroDrafts(req: PuuidRequest):
     try:
@@ -51,9 +60,18 @@ async def generateMacroDrafts(req: PuuidRequest):
         print(e)
 
 @app.post("/graphs/qualitative")
-async def generateMacroDrafts(req: PuuidRequest):
+async def generateMicroDrafts(req: PuuidRequest):
     try:
         data = generateQualitativeStatsGraphData(req.puuid)
+        outputJson = json.loads(data)
+        return outputJson
+    except Exception as e:
+        print(e)
+
+@app.post("/graphs/scatter")
+async def MicroMacroComparisons(req: PuuidRequest):
+    try:
+        data = generateMacroMicroComparison(req.puuid)
         outputJson = json.loads(data)
         return outputJson
     except Exception as e:

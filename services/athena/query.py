@@ -247,7 +247,7 @@ WITH base AS (
 indexed AS (
   SELECT
     b.*,
-    ROW_NUMBER() OVER (PARTITION BY puuid ORDER BY timeplayed) AS totaldamagedealttochampions, ,
+    ROW_NUMBER() OVER (PARTITION BY puuid ORDER BY timeplayed) AS totaldamagedealttochampions,
     NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0)               AS per10_den
   FROM base b
 ),
@@ -335,11 +335,118 @@ ORDER BY puuid, match_index;
     json_string = df.to_json(orient='records')
     return json_string
 
+def generateMacroMicroComparison(puuid):
+    query = f"""
+WITH base AS (
+  SELECT
+    puuid,
+    timeplayed,                                          -- seconds
+    COALESCE(challenges.visionScorePerMinute, CAST(NULL AS DOUBLE))              AS vspm,
+    COALESCE(challenges.riftHeraldTakedowns, 0)                                   AS rift_heralds,
+    COALESCE(challenges.scuttleCrabKills, 0)                                      AS scuttle_kills,
+    COALESCE(challenges.killParticipation, CAST(NULL AS DOUBLE))                  AS kp,
+    COALESCE(challenges.skillshotsHit, 0)                                         AS skillshots_hit,
+    COALESCE(challenges.soloKills, 0)                                             AS solo_kills,
 
+    COALESCE(kills, 0)                        AS kills_,
+    COALESCE(deaths, 0)                       AS deaths_,
+    COALESCE(assists, 0)                      AS assists_,
+    COALESCE(totaldamagedealttochampions, 0)  AS dmg_to_champs,
+    COALESCE(killingsprees, 0)                AS sprees,
+    COALESCE(largestmultikill, 0)             AS largest_multi,
+
+    COALESCE(dragonkills, 0)                  AS dragons,
+    COALESCE(baronkills, 0)                   AS barons,
+    COALESCE(turretkills, 0) + COALESCE(turrettakedowns, 0) AS turret_events,
+    COALESCE(objectivesstolen, 0) + 0.5*COALESCE(objectivesstolenassists, 0)      AS objective_steals,
+
+    COALESCE(wardsplaced, 0) + COALESCE(wardskilled, 0)
+      + COALESCE(detectorwardsplaced, 0)
+      + COALESCE(sightwardsboughtingame, 0)
+      + COALESCE(visionwardsboughtingame, 0)
+      + COALESCE(challenges.controlWardsPlaced, 0)                                 AS ward_actions,
+
+    COALESCE(totalenemyjungleminionskilled, 0)                                     AS enemy_jungle_cs
+  FROM {puuid}
+),
+rates AS (
+  SELECT
+    puuid,
+    timeplayed,
+
+    NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS per10,
+    NULLIF(CAST(timeplayed AS DOUBLE)/60.0,  0.0) AS per_min,
+
+    CAST(kills_         AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS kills_per10,
+    CAST(assists_       AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS assists_per10,
+    CAST(deaths_        AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS deaths_per10,
+    CAST(dmg_to_champs  AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/60.0,  0.0) AS dpm, -- damage / min
+    CAST(skillshots_hit AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS skillshots_per10,
+    CAST(solo_kills     AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS solo_kills_per10,
+    CAST(sprees         AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS sprees_per10,
+
+    vspm,
+    CAST((dragons + barons + rift_heralds) AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS epic_obj_per10,
+    CAST(turret_events         AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS turret_events_per10,
+    CAST(objective_steals      AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS obj_steals_per10,
+    CAST(ward_actions          AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS ward_actions_per10,
+    CAST((enemy_jungle_cs + scuttle_kills) AS DOUBLE) / NULLIF(CAST(timeplayed AS DOUBLE)/600.0, 0.0) AS neutral_ctrl_per10,
+    kp
+  FROM base
+),
+scores AS (
+  SELECT
+    puuid,
+    timeplayed,
+
+    -- MICRO
+    (
+      0.30 * COALESCE(kills_per10, 0.0) +
+      0.10 * COALESCE(assists_per10, 0.0) +
+     -0.20 * COALESCE(deaths_per10, 0.0) +
+      0.25 * (COALESCE(dpm, 0.0) / 1000.0) +
+      0.10 * COALESCE(skillshots_per10, 0.0) +
+      0.15 * COALESCE(solo_kills_per10, 0.0) +
+      0.10 * COALESCE(sprees_per10, 0.0)
+    ) AS micro_score,
+
+    -- MACRO
+    (
+      0.25 * COALESCE(vspm, 0.0) +
+      0.20 * COALESCE(epic_obj_per10, 0.0) +
+      0.15 * COALESCE(turret_events_per10, 0.0) +
+      0.10 * COALESCE(obj_steals_per10, 0.0) +
+      0.10 * COALESCE(ward_actions_per10, 0.0) +
+      0.10 * COALESCE(neutral_ctrl_per10, 0.0) +
+      0.10 * COALESCE(kp, 0.0)
+    ) AS macro_score
+  FROM rates
+)
+SELECT
+  puuid,
+  timeplayed,
+  micro_score,
+  macro_score,
+  0.5*micro_score + 0.5*macro_score AS composite_score,
+  CASE
+    WHEN micro_score + macro_score = 0 THEN 'balanced'
+    WHEN micro_score < macro_score  THEN 'micro'
+    WHEN macro_score < micro_score  THEN 'macro'
+    ELSE 'balanced'
+  END AS needs_improvement
+FROM scores;
+"""
+    df = wr.athena.read_sql_query(
+        sql=query,
+        database="riftrewindinput",
+        boto3_session=boto3.Session(region_name='us-west-2')
+    )
+    json_string = df.to_json(orient='records')
+    return json_string
 #REMEMBER PUT DATA INTO LLM TO ANALYSE AND TALK ABOUT TRENDS AND WHERE THEY CAN IMPROVE I WILL RETURN THE RAW DATA TOO TO THE LLM
 #get the gold data over too and graph with scatter plot
 #explain composite score of a bunch of things and feed into LLM
 #remember to get the raw data too so players know where they can get better with improving macro
 
-#print(getMacroData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
-
+#print(generateQualitativeStatsGraphData("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
+print(generateMacroMicroComparison("jzdg2rwr6k16dsjfalqjeixnhaa_yyffhr0xdpwqbzqieai2rpb4npjpd2zw_iibav31xmrtrz4p6g"))
